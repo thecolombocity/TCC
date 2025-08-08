@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base target="_top" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        font-family: 'Segoe UI', sans-serif;
+        background-color: #f9f9f9;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding-top: 30px;
+        min-height: 100vh;
+      }
+
+      h1 {
+        margin-bottom: 20px;
+        font-size: 1.6rem;
+        color: #000;
+        text-align: center;
+        padding: 0 10px;
+      }
+
+      input, button {
+        padding: 12px;
+        margin: 8px 0;
+        font-size: 1rem;
+        border-radius: 9999px;
+        border: 1px solid #ccc;
+        width: 90vw;
+        max-width: 300px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+
+      button {
+        background-color: #000;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background-color: #222;
+      }
+
+      #statusMessage {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1001;
+        max-width: 90%;
+        padding: 12px 18px;
+        font-size: 0.95rem;
+        border-radius: 12px;
+        text-align: center;
+        display: none;
+        animation: fadeIn 0.3s ease-in-out;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+
+      .success {
+        background-color: #e6f9ed;
+        color: #1a7f37;
+        border: 1px solid #c3f2d4;
+      }
+
+      .error {
+        background-color: #fff0f0;
+        color: #b10000;
+        border: 1px solid #f3cccc;
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translate(-50%, -10px); }
+        to { opacity: 1; transform: translate(-50%, 0); }
+      }
+
+      #scanner-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        backdrop-filter: blur(4px);
+        background-color: rgba(0, 0, 0, 0.9);
+        display: none;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+      }
+
+      #reader {
+        width: 90vw;
+        height: 90vw;
+        max-width: 400px;
+        max-height: 400px;
+        background: black;
+        border-radius: 16px;
+        overflow: hidden;
+        position: relative;
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.6);
+      }
+
+      .corner-frame {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(255, 255, 255, 0.7);
+        z-index: 10;
+        box-sizing: border-box;
+      }
+
+      .top-left { top: 0; left: 0; border-right: none; border-bottom: none; }
+      .top-right { top: 0; right: 0; border-left: none; border-bottom: none; }
+      .bottom-left { bottom: 0; left: 0; border-right: none; border-top: none; }
+      .bottom-right { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+      #cancelScanBtn {
+        position: absolute;
+        bottom: 25px;
+        background-color: #ff4444;
+        color: white;
+        padding: 10px 20px;
+        font-size: 1rem;
+        border-radius: 9999px;
+        border: none;
+        cursor: pointer;
+        z-index: 1001;
+      }
+
+      #cancelScanBtn:hover {
+        background-color: #cc0000;
+      }
+
+      @media (max-height: 500px) {
+        #reader {
+          height: 70vw;
+        }
+
+        #cancelScanBtn {
+          bottom: 10px;
+          padding: 8px 16px;
+          font-size: 0.9rem;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Mark as Delivered</h1>
+
+    <input type="text" id="orderNumber" placeholder="Order Number (QR)" />
+    <input type="text" id="accessCode" placeholder="Access Code" />
+    <input type="hidden" id="scanTime" />
+    <input type="hidden" id="locationData" />
+
+    <button onclick="submitDelivery()">Submit</button>
+    <button onclick="startScan()">Scan QR Code</button>
+
+    <div id="statusMessage"></div>
+
+    <div id="scanner-overlay">
+      <div id="reader">
+        <div class="corner-frame top-left"></div>
+        <div class="corner-frame top-right"></div>
+        <div class="corner-frame bottom-left"></div>
+        <div class="corner-frame bottom-right"></div>
+      </div>
+      <button id="cancelScanBtn" onclick="cancelScan()">Cancel Scan</button>
+    </div>
+
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script>
+
+    // Replace YOUR_WEB_APP_URL with the URL you got after deploying Apps Script web app
+const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwxMVVkee4Uvc06EFNhHZRPzsWyZX9gF8Ir0vOoKfDz0_1u9XHUQhuN4_a3V8tT9lMT/exec";
+
+// Check order status by calling your Apps Script web app GET endpoint
+function checkOrderStatus(orderNumber) {
+  const url = WEB_APP_URL + "?order=" + encodeURIComponent(orderNumber);
+  return fetch(url).then(response => response.json());
+}
+
+// Mark order as delivered by calling your Apps Script web app POST endpoint
+function markAsDelivered(orderNumber, accessCode, scanTime, locationData) {
+  return fetch(WEB_APP_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderNumber, accessCode, scanTime, locationData }),
+  }).then(response => response.json());
+}
+
+      let html5QrCode;
+
+      function startScan() {
+        document.getElementById('statusMessage').style.display = 'none';
+        document.getElementById('scanner-overlay').style.display = 'flex';
+
+        html5QrCode = new Html5Qrcode("reader");
+
+        Html5Qrcode.getCameras().then(devices => {
+          if (devices && devices.length) {
+            html5QrCode.start(
+              { facingMode: "environment" },
+              {
+                fps: 10,
+                qrbox: function(viewfinderWidth, viewfinderHeight) {
+                  const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+                  return { width: minEdge * 0.9, height: minEdge * 0.9 };
+                }
+              },
+              qrCodeMessage => {
+                html5QrCode.stop().then(() => {
+                  document.getElementById("scanner-overlay").style.display = "none";
+                  document.getElementById("orderNumber").value = qrCodeMessage;
+                  document.getElementById("scanTime").value = new Date().toISOString();
+                  getLocation();
+
+                  showMessage("Checking status...", "success");
+
+                  google.script.run.withSuccessHandler(response => {
+                    if (response.status === "Out for delivery") {
+                      showMessage("Ready to mark as delivered.", "success");
+                    } else if (response.status === "Delivered") {
+                      showMessage("Already delivered.", "error");
+                    } else {
+                      showMessage("Status not eligible: " + response.status, "error");
+                    }
+                  }).checkOrderStatus(qrCodeMessage);
+
+                }).catch(err => {
+                  showMessage("Camera stop error.", "error");
+                });
+              },
+              errorMessage => {}
+            );
+          }
+        }).catch(err => {
+          document.getElementById("scanner-overlay").style.display = "none";
+          showMessage("Camera error: " + err, "error");
+        });
+      }
+
+      function getLocation() {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            position => {
+              const coords = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+              };
+              document.getElementById("locationData").value = JSON.stringify(coords);
+            },
+            error => {
+              showMessage("Location error.", "error");
+            }
+          );
+        } else {
+          showMessage("Geolocation not supported.", "error");
+        }
+      }
+
+      function cancelScan() {
+        if (html5QrCode) {
+          html5QrCode.stop().then(() => {
+            document.getElementById("scanner-overlay").style.display = "none";
+          }).catch(err => {
+            showMessage("Failed to stop scanner.", "error");
+          });
+        }
+      }
+
+      function showMessage(msg, type) {
+        const statusDiv = document.getElementById("statusMessage");
+        statusDiv.innerText = msg;
+        statusDiv.className = type;
+        statusDiv.style.display = "block";
+
+        // Auto-hide after 4s
+        setTimeout(() => {
+          statusDiv.style.display = "none";
+        }, 4000);
+      }
+
+      function submitDelivery() {
+        const orderNumber = document.getElementById("orderNumber").value.trim();
+        const accessCode = document.getElementById("accessCode").value.trim();
+        const scanTime = document.getElementById("scanTime").value;
+        const locationData = document.getElementById("locationData").value;
+
+        if (!orderNumber || !accessCode) {
+          showMessage("Order & code required.", "error");
+          return;
+        }
+
+        showMessage("Validating order...", "success");
+
+        checkOrderStatus(orderNumber)
+  .then(response => {
+    if (response.status === "Out for delivery") {
+      return markAsDelivered(orderNumber, accessCode, scanTime, locationData);
+    } else if (response.status === "Delivered") {
+      showMessage("Already delivered.", "error");
+      // Return a rejected promise to skip further processing
+      return Promise.reject("Already delivered");
+    } else {
+      showMessage("Status: " + response.status, "error");
+      return Promise.reject("Invalid status");
+    }
+  })
+  .then(updateResponse => {
+    if (updateResponse.success) {
+      showMessage("Marked as delivered.", "success");
+    } else {
+      showMessage(updateResponse.message, "error");
+    }
+  })
+  .catch(err => {
+    if (typeof err === "string") {
+      // We already handled these errors above, so ignore
+      return;
+    }
+    showMessage("Error: " + err, "error");
+  });
+
+      }
+    </script>
+  </body>
+</html>
